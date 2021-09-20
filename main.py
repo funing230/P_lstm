@@ -27,11 +27,12 @@ from sklearn.preprocessing import LabelEncoder
 
 #read bugreport for XLSX
 projectname = 'Eclipse_Platform_UI_bugreport'
-Eclipse_Platform_UI = pd.read_excel('dataset/' + projectname + '.xlsx', engine='openpyxl',nrows=5)
+Eclipse_Platform_UI = pd.read_excel('dataset/' + projectname + '.xlsx', engine='openpyxl',nrows=15)
 Eclipse_Platform_UI.rename(columns = {'Unnamed: 10' : 'result'}, inplace = True)
 
 #read weight table
-weight=pd.read_excel('writer.xlsx', engine='openpyxl',header=None,nrows=5)
+weight=pd.read_excel('dataset/' + 'weight_table.xlsx', engine='openpyxl',header=None,nrows=15)
+w_bug_id=weight.iloc[:,0]
 weight= weight.iloc[:,1:].fillna(0)
 maxmin = preprocessing.MinMaxScaler()
 # print(weight.dtypes)
@@ -50,11 +51,15 @@ for col in range(weight.shape[1]):
         weight.iloc[:, col]=maxmin.fit_transform(weight.iloc[:, col].values.reshape(-1, 1),scale_param)
 
 lastweight=pd.get_dummies(weight)
+
+# lastweight.insert(0,'bug_id',1, allow_duplicates=False)
+# lastweight['bug_id']=w_bug_id
+
 print(lastweight.info())
 print(lastweight.head(2))
 
 #read Serverity for XLSX
-serverity = pd.read_excel('dataset/' + 'serverity' + '.xlsx', engine='openpyxl',nrows=5)
+serverity = pd.read_excel('dataset/' + 'serverity' + '.xlsx', engine='openpyxl',nrows=15)
 serverity.rename(columns = {'Unnamed: 10' : 'result'}, inplace = True)
 
 #concat serverity with bugreport
@@ -69,25 +74,28 @@ df_id_br_s=Eclipse_Platform_UI.iloc[:,[1,2,3,-1]]
 
 
 #labale data y
-le = LabelEncoder()
-y= le.fit_transform(df_id_br_s.iloc[:,-1])
 
-#df_br_s.dropna(inplace = True)
+from sklearn.preprocessing import OrdinalEncoder
+oe = OrdinalEncoder()
+oe.fit(df_id_br_s.iloc[:,-1].values.reshape(-1, 1)).categories_
 
-#df.shape
+y_labels = oe.fit_transform(df_id_br_s.iloc[:,-1].values.reshape(-1, 1))
+
 
 ## Get the Independent Features
-X = df_id_br_s
 
+
+X=df_id_br_s.fillna(' ')
 #for word2vec dictionary
-messages = (df_id_br_s.iloc[:,1]+df_id_br_s.iloc[:,2]).to_frame()
-
+#messages = (df_id_br_s.iloc[:,1]+df_id_br_s.iloc[:,2]).to_frame()
+#messages = df_id_br_s.iloc[:,1] + np.where(df_id_br_s.iloc[:,2]!='no_item', ', '+df_id_br_s.iloc[:,2],'')
+messages = (X.iloc[:,1].map(str)+X.iloc[:,2]).to_frame()
 ## Get the serverity  features
 #y=df_id_br_s.iloc[:,-1]
 
 
 ### Vocabulary size
-voc_size=5000
+voc_size=9000
 
 
 messages.reset_index(inplace = True)
@@ -118,7 +126,7 @@ sentences= [nltk.word_tokenize(words) for words in process_data(messages)]
 EMBEDDING_LEN=100
 def get_word2vec_dictionaries(texts):
     Word2VecModel =Word2Vec(texts, window=7, min_count=5, workers=4) #  Get the word2vector model
-    words=list(Word2VecModel.wv.index_to_key)
+    words=list(Word2VecModel.wv.index_to_key)#index_to_key
     vocab_list = [word for word in words]  # Store all words  index_to_key enumerate(Word2VecModel.wv.index_to_key)
     word_index = {" ": 0}      # Initialize `[word: token]`, and later tokenize the corpus to use this dictionary.
     word_vector = {}           # Initialize the `[word: vector]` dictionary
@@ -137,7 +145,7 @@ def get_word2vec_dictionaries(texts):
 word_index, word_vector, embeddings_matrix = get_word2vec_dictionaries(sentences)
 
 
-MAX_SEQUENCE_LENGTH = 500
+MAX_SEQUENCE_LENGTH = 1000
 # Serialize the text, tokenizer sentence, and return the word index corresponding to each sentence
 def tokenizer(sentences, word_index):
     index_data = []
@@ -157,45 +165,63 @@ def tokenizer(sentences, word_index):
 
 
 # id summary description serverity
-#merge=df_id_br_s.iloc[:,1]+df_id_br_s.iloc[:,2]
 summary_description_word2vec_idex=tokenizer(sentences, word_index)
-print(summary_description_word2vec_idex.shape)
-print(lastweight.shape)
+# print(summary_description_word2vec_idex.shape)
+# print(lastweight.shape)
 
 
-main_input = keras.Input(shape=(None,), name="bugreport")
+main_input = keras.Input(shape=(summary_description_word2vec_idex.shape[1],), name="bugreport")
 weight_input = keras.Input(shape=(lastweight.shape[1],), name="weight")
-
 main_features =Embedding(output_dim=embeddings_matrix.shape[0], input_dim=embeddings_matrix.shape[1], input_length=300)(main_input)
-
-lstm_out = LSTM(64)(main_features)
-
+lstm_out = LSTM(128)(main_features)
 x = keras.layers.concatenate([lstm_out, weight_input])
-x = Dense(64, activation='relu')(x)
-x = Dense(64, activation='relu')(x)
+x = Dense(128, activation='relu')(x)
+#x = Dense(64, activation='relu')(x)
 #x = tf.keras.layers.Flatten(x)
-
 output = Dense(1, activation='softmax', name='output')(x)
-
-model = Model(inputs=[main_input, weight_input], outputs=output)
+model = Model(inputs=[main_input, weight_input], outputs=[output])
 model.compile(optimizer='rmsprop',
 loss={'output': keras.losses.CategoricalCrossentropy(from_logits=True)},
 loss_weights={'output': 0.2})
 
 print(model.summary())
 
-main_input = summary_description_word2vec_idex
-aux_input = lastweight
-
 # fit
-model.fit(
-    {"bugreport": summary_description_word2vec_idex, "weight": lastweight},
-    {"output": y},
-    epochs=10,
-    batch_size=32,
+# history=model.fit(
+#     {"bugreport": summary_description_word2vec_idex, "weight": lastweight},
+#     {"output": y},
+#     epochs=10,
+#     batch_size=32,
+# )
+
+
+
+def get_train_batch(source_input_ids,target_input_ids,target_output_ids, batch_size):
+    '''
+    参数：
+        train_dataset:所有数据，为source_data_ids,target_input_ids,target_output_ids, batch_size
+        batch_size:批次
+    返回:
+        一个generator，( inputs = {'encode_input':e,'decode_input':d},outputs =  {'dense':t})
+    '''
+    while 1:
+        for i in range(0, len(source_input_ids), batch_size):
+            e = source_input_ids[i:i+batch_size]
+            d = target_input_ids[i:i+batch_size]
+            t = target_output_ids[i:i+batch_size]
+            e = np.array(e)
+            d = np.array(d)
+            t = np.array(t)
+            yield ({'bugreport':e,'weight':d},{'output':t})
+
+
+batch_size=8;
+
+model.fit(get_train_batch(summary_description_word2vec_idex[:70],lastweight[:70],y_labels[:70], batch_size),
+          batch_size=batch_size,
+          epochs=1,
+          steps_per_epoch = 20,
+          verbose=1,
+          validation_data=([summary_description_word2vec_idex[70:],lastweight[70:]], y_labels[70:])
 )
-
-#
-
-
 
