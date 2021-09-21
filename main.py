@@ -27,11 +27,11 @@ from sklearn.preprocessing import LabelEncoder
 
 #read bugreport for XLSX
 projectname = 'Eclipse_Platform_UI_bugreport'
-Eclipse_Platform_UI = pd.read_excel('dataset/' + projectname + '.xlsx', engine='openpyxl',nrows=15)
+Eclipse_Platform_UI = pd.read_excel('dataset/' + projectname + '.xlsx', engine='openpyxl',nrows=30)
 Eclipse_Platform_UI.rename(columns = {'Unnamed: 10' : 'result'}, inplace = True)
 
 #read weight table
-weight=pd.read_excel('dataset/' + 'weight_table.xlsx', engine='openpyxl',header=None,nrows=15)
+weight=pd.read_excel('dataset/' + 'weight_table.xlsx', engine='openpyxl',header=None,nrows=30)
 w_bug_id=weight.iloc[:,0]
 weight= weight.iloc[:,1:].fillna(0)
 maxmin = preprocessing.MinMaxScaler()
@@ -59,7 +59,7 @@ print(lastweight.info())
 print(lastweight.head(2))
 
 #read Serverity for XLSX
-serverity = pd.read_excel('dataset/' + 'serverity' + '.xlsx', engine='openpyxl',nrows=15)
+serverity = pd.read_excel('dataset/' + 'serverity' + '.xlsx', engine='openpyxl',nrows=30)
 serverity.rename(columns = {'Unnamed: 10' : 'result'}, inplace = True)
 
 #concat serverity with bugreport
@@ -126,7 +126,7 @@ sentences= [nltk.word_tokenize(words) for words in process_data(messages)]
 EMBEDDING_LEN=100
 def get_word2vec_dictionaries(texts):
     Word2VecModel =Word2Vec(texts, window=7, min_count=5, workers=4) #  Get the word2vector model
-    words=list(Word2VecModel.wv.index_to_key)#index_to_key
+    words=list(Word2VecModel.wv.index_to_key)#index_to_key  vocab
     vocab_list = [word for word in words]  # Store all words  index_to_key enumerate(Word2VecModel.wv.index_to_key)
     word_index = {" ": 0}      # Initialize `[word: token]`, and later tokenize the corpus to use this dictionary.
     word_vector = {}           # Initialize the `[word: vector]` dictionary
@@ -145,7 +145,7 @@ def get_word2vec_dictionaries(texts):
 word_index, word_vector, embeddings_matrix = get_word2vec_dictionaries(sentences)
 
 
-MAX_SEQUENCE_LENGTH = 1000
+MAX_SEQUENCE_LENGTH = 3000
 # Serialize the text, tokenizer sentence, and return the word index corresponding to each sentence
 def tokenizer(sentences, word_index):
     index_data = []
@@ -172,18 +172,19 @@ summary_description_word2vec_idex=tokenizer(sentences, word_index)
 
 main_input = keras.Input(shape=(summary_description_word2vec_idex.shape[1],), name="bugreport")
 weight_input = keras.Input(shape=(lastweight.shape[1],), name="weight")
-main_features =Embedding(output_dim=embeddings_matrix.shape[0], input_dim=embeddings_matrix.shape[1], input_length=300)(main_input)
+main_features =Embedding(output_dim=embeddings_matrix.shape[1], input_dim=embeddings_matrix.shape[0],weights=[embeddings_matrix], input_length=3000)(main_input)
 lstm_out = LSTM(128)(main_features)
 x = keras.layers.concatenate([lstm_out, weight_input])
 x = Dense(128, activation='relu')(x)
 #x = Dense(64, activation='relu')(x)
 #x = tf.keras.layers.Flatten(x)
+x=tf.keras.layers.Flatten()(x)
 output = Dense(1, activation='softmax', name='output')(x)
 model = Model(inputs=[main_input, weight_input], outputs=[output])
 model.compile(optimizer='rmsprop',
 loss={'output': keras.losses.CategoricalCrossentropy(from_logits=True)},
-loss_weights={'output': 0.2})
-
+loss_weights={'output': 0.2},
+metrics=['accuracy'])
 print(model.summary())
 
 # fit
@@ -217,11 +218,11 @@ def get_train_batch(source_input_ids,target_input_ids,target_output_ids, batch_s
 
 batch_size=8;
 
-model.fit(get_train_batch(summary_description_word2vec_idex[:70],lastweight[:70],y_labels[:70], batch_size),
+model.fit(get_train_batch(summary_description_word2vec_idex[:20],lastweight[:20],y_labels[:20], batch_size),
           batch_size=batch_size,
           epochs=1,
           steps_per_epoch = 20,
           verbose=1,
-          validation_data=([summary_description_word2vec_idex[70:],lastweight[70:]], y_labels[70:])
+          validation_data=([summary_description_word2vec_idex[20:],lastweight[20:]], y_labels[20:])
 )
 
