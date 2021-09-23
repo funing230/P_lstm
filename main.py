@@ -48,7 +48,7 @@ def is_simple_numpy_number(dtype):
 for col in range(weight.shape[1]):
     if is_simple_numpy_number(weight.iloc[:, col].dtype):
         scale_param = maxmin.fit(weight.iloc[:, col].values.reshape(-1, 1))
-        weight.iloc[:, col]=maxmin.fit_transform(weight.iloc[:, col].values.reshape(-1, 1),scale_param)
+        weight.iloc[:, col]=maxmin.transform(weight.iloc[:, col].values.reshape(-1, 1),scale_param)
 
 lastweight=pd.get_dummies(weight)
 
@@ -102,8 +102,8 @@ messages.reset_index(inplace = True)
 #messages['title']
 
 #Download the nltk toolkit
-# nltk.download('stopwords')
-# nltk.download('punkt')
+nltk.download('stopwords')
+nltk.download('punkt')
 
 
 ### Dataset Preprocessing
@@ -130,9 +130,6 @@ def get_word2vec_dictionaries(texts):
     vocab_list = [word for word in words]  # Store all words  index_to_key enumerate(Word2VecModel.wv.index_to_key)
     word_index = {" ": 0}      # Initialize `[word: token]`, and later tokenize the corpus to use this dictionary.
     word_vector = {}           # Initialize the `[word: vector]` dictionary
-    # Initialize , pay attention to one more bit (first row), the word vector is all 0, which is used for padding.
-    # embeddings_matrix :The number of rows is the number of all words +1,
-    # the number of columns is the "dimension" of the word vector, such as 100.
     embeddings_matrix = np.zeros((len(vocab_list) + 1, Word2VecModel.vector_size))
     ## Fill in the above dictionary and matrix
     for i in range(len(vocab_list)):
@@ -172,19 +169,24 @@ summary_description_word2vec_idex=tokenizer(sentences, word_index)
 
 main_input = keras.Input(shape=(summary_description_word2vec_idex.shape[1],), name="bugreport")
 weight_input = keras.Input(shape=(lastweight.shape[1],), name="weight")
-main_features =Embedding(output_dim=embeddings_matrix.shape[1], input_dim=embeddings_matrix.shape[0],weights=[embeddings_matrix], input_length=3000)(main_input)
+main_features =Embedding(output_dim=embeddings_matrix.shape[1],
+                         input_dim=embeddings_matrix.shape[0],
+                         weights=[embeddings_matrix],
+                         input_length=3000)(main_input)
 lstm_out = LSTM(128)(main_features)
 x = keras.layers.concatenate([lstm_out, weight_input])
-x = Dense(128, activation='relu')(x)
-#x = Dense(64, activation='relu')(x)
+x = Dense(128, activation='tanh')(x)
+x = Dense(64, activation='tanh')(x)
 #x = tf.keras.layers.Flatten(x)
 x=tf.keras.layers.Flatten()(x)
 output = Dense(1, activation='softmax', name='output')(x)
 model = Model(inputs=[main_input, weight_input], outputs=[output])
-model.compile(optimizer='rmsprop',
-loss={'output': keras.losses.CategoricalCrossentropy(from_logits=True)},
-loss_weights={'output': 0.2},
-metrics=['accuracy'])
+model.compile(
+              optimizer='rmsprop',
+              loss={'output': keras.losses.CategoricalCrossentropy(from_logits=True)},
+              loss_weights={'output': 0.2},
+              metrics=['accuracy']
+              )
 print(model.summary())
 
 # fit
@@ -198,13 +200,6 @@ print(model.summary())
 
 
 def get_train_batch(source_input_ids,target_input_ids,target_output_ids, batch_size):
-    '''
-    参数：
-        train_dataset:所有数据，为source_data_ids,target_input_ids,target_output_ids, batch_size
-        batch_size:批次
-    返回:
-        一个generator，( inputs = {'encode_input':e,'decode_input':d},outputs =  {'dense':t})
-    '''
     while 1:
         for i in range(0, len(source_input_ids), batch_size):
             e = source_input_ids[i:i+batch_size]
